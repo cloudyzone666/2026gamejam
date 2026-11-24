@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 100004}
   - component: {fileID: 100005}
   - component: {fileID: 100050}
+  - component: {fileID: 5251020687273534825}
   m_Layer: 5
   m_Name: CharacterCard
   m_TagString: Untagged
@@ -157,6 +158,23 @@ MonoBehaviour:
   visualRoot: {fileID: 837943968131689674}
   topProfessionText: {fileID: 1089868430675291126}
   bottomProfessionText: {fileID: 5719870549600271113}
+--- !u!114 &5251020687273534825
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 469175e18bab65b4a9c7183ae8a44eda, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  yaw: 0
+  perspectiveDistance: 600
+  perspectiveCenterOffset: {x: 0, y: 0}
+  verticalOffset: 0
+  hoverScale: 1
 --- !u!1 &100006
 GameObject:
   m_ObjectHideFlags: 0

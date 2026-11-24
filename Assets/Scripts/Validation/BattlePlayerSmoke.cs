@@ -111,6 +111,8 @@ namespace CardCards.Validation
             public BattleView view;
             public BattleVerificationReport report;
             public string reportPath;
+            public Mouse mouse;
+            public Keyboard keyboard;
             public Button Button(string field) => ReadField<Button>(view, field);
         }
 
@@ -119,29 +121,55 @@ namespace CardCards.Validation
             var suspendedDevices = new List<InputDevice>();
             Mouse previousMouse = Mouse.current;
             Keyboard previousKeyboard = Keyboard.current;
+            InputSettings previousSettings = InputSystem.settings;
+            InputSettings settings = UnityEngine.Object.Instantiate(previousSettings);
+            settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+            settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
+            var module = EventSystem.current == null ? null : EventSystem.current.currentInputModule as InputSystemUIInputModule;
+            Require(module != null && module.actionsAsset != null, "Suite input isolation requires the real UI action asset.");
+            InputActionAsset actions = module.actionsAsset;
+            InputDevice[] previousDevices = actions.devices.HasValue ? actions.devices.Value.ToArray() : null;
+            Mouse mouse = null;
+            Keyboard keyboard = null;
             try
             {
                 // Keep native input from reopening hover details between the suite's virtual devices.
                 // This state is confined to opt-in verification and restored even if a nested check fails.
+                InputSystem.settings = settings;
                 foreach (InputDevice device in InputSystem.devices)
                 {
                     if (!(device is Mouse) && !(device is Keyboard) || !device.enabled) continue;
                     suspendedDevices.Add(device);
                     InputSystem.DisableDevice(device);
                 }
-                report.inputDiagnostics.Add("BookUI suite suspended enabled native mouse/keyboard devices: " + suspendedDevices.Count);
-                yield return RunIsolated(report, reportPath);
+                mouse = InputSystem.AddDevice<Mouse>("SuiteVerificationMouse");
+                keyboard = InputSystem.AddDevice<Keyboard>("SuiteVerificationKeyboard");
+                actions.devices = new InputDevice[] { mouse, keyboard };
+                mouse.MakeCurrent(); keyboard.MakeCurrent();
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = Vector2.zero });
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                report.inputDiagnostics.Add("Suite input isolation persists until all checks/captures finish: suspendedNative="
+                    + suspendedDevices.Count + ", mouse=" + mouse.name + "#" + mouse.deviceId
+                    + ", keyboard=" + keyboard.name + "#" + keyboard.deviceId + ", background=" + settings.backgroundBehavior);
+                yield return RunIsolated(report, reportPath, mouse, keyboard);
             }
             finally
             {
+                actions.devices = previousDevices;
+                if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
+                if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
+                InputSystem.settings = previousSettings;
                 foreach (InputDevice device in suspendedDevices)
                     if (device.added) InputSystem.EnableDevice(device);
                 if (previousMouse != null && previousMouse.added) previousMouse.MakeCurrent();
                 if (previousKeyboard != null && previousKeyboard.added) previousKeyboard.MakeCurrent();
+                UnityEngine.Object.Destroy(settings);
             }
         }
 
-        private static IEnumerator RunIsolated(BattleVerificationReport report, string reportPath)
+        private static IEnumerator RunIsolated(BattleVerificationReport report, string reportPath, Mouse mouse, Keyboard keyboard)
         {
             float deadline = Time.realtimeSinceStartup + 30f;
             BattleController controller;
@@ -150,7 +178,7 @@ namespace CardCards.Validation
                 Require(Time.realtimeSinceStartup < deadline, "Battle scene initialization timed out.");
                 yield return null;
             }
-            var context = new Context { controller = controller, view = UnityEngine.Object.FindObjectOfType<BattleView>(), report = report, reportPath = reportPath };
+            var context = new Context { controller = controller, view = UnityEngine.Object.FindObjectOfType<BattleView>(), report = report, reportPath = reportPath, mouse = mouse, keyboard = keyboard };
             Require(context.view != null, "BattleView missing.");
             report.unityVersion = Application.unityVersion;
             report.graphicsDevice = SystemInfo.graphicsDeviceType.ToString();
@@ -178,6 +206,10 @@ namespace CardCards.Validation
             yield return Capture(context, "BookUI-01-preparation");
 
             yield return FourActionsUiChecks.Run(controller, context.view, report.checks, report.inputDiagnostics);
+            Require(ReferenceEquals(Mouse.current, mouse) && mouse.enabled,
+                "Nested UI checks must restore the suite's persistent virtual mouse.");
+            PreparePointer(context);
+            yield return CaptureFormationStates(context);
 
             yield return PointerClick(context, CardButton(context, controller.Enemies[0]));
             Require(context.view.InfoPanel.HasEnemyTooltip && context.view.InfoPanel.Tooltip.IsPinned, "Enemy inspection tooltip did not pin.");
@@ -250,6 +282,13 @@ namespace CardCards.Validation
             Check(context, "All four painted controls use real pointer input: standby/rotate/flip/adjust, cancel is atomic, target clicks pass tooltips, shields stay upright, and final-AP adjustment waits for explicit exit");
 
             int rounds = 0;
+            BattleUnitState pinnedEnemy = null;
+            foreach (BattleUnitState enemy in controller.Enemies)
+                if (enemy.IsAlive) { pinnedEnemy = enemy; break; }
+            Require(pinnedEnemy != null, "Death cleanup verification requires a surviving enemy.");
+            yield return PointerClick(context, CardButton(context, pinnedEnemy));
+            Require(context.view.EnemyFormation.PinnedCard != null && ReferenceEquals(context.view.EnemyFormation.PinnedCard.Unit, pinnedEnemy),
+                "Death cleanup verification requires a pinned enemy.");
             while (controller.Phase != BattlePhase.Victory && controller.Phase != BattlePhase.Defeat && rounds++ < 30)
             {
                 Require(controller.Phase == BattlePhase.PlayerTurn, "Unexpected win helper phase.");
@@ -265,21 +304,31 @@ namespace CardCards.Validation
                 }
                 if (controller.Phase == BattlePhase.PlayerTurn) controller.EndPlayerTurn();
                 yield return WaitForEnemy(context);
+                if (!pinnedEnemy.IsAlive)
+                    Require(context.view.EnemyFormation.PinnedCard == null,
+                        "An enemy pin must be released when that character dies.");
             }
             Require(controller.Phase == BattlePhase.Victory, "Default 4v4 did not finish in victory.");
             yield return Capture(context, "BookUI-06-victory");
             yield return PointerClick(context, context.Button("restartButton"));
             Require(controller.Phase == BattlePhase.Preparation && controller.Backpack.Placements.Count == 4 && !controller.Allies[0].IsRotated, "Restart did not reset equipment/preparation.");
+            Require(context.view.AllyFormation.PinnedCard == null && context.view.EnemyFormation.PinnedCard == null,
+                "Restart must clear both card pins.");
+            yield return PointerClick(context, CardButton(context, controller.Allies[0]));
+            Require(context.view.AllyFormation.PinnedCard != null, "Ally death cleanup verification requires a pinned ally.");
             controller.StartBattle();
             for (int round = 0; controller.Phase != BattlePhase.Defeat && round < 80; round++)
             {
                 controller.EndPlayerTurn(); yield return WaitForEnemy(context);
             }
             Require(controller.Phase == BattlePhase.Defeat, "Default battle did not reach defeat.");
+            Require(context.view.AllyFormation.PinnedCard == null,
+                "An ally pin must be released when that character dies.");
             yield return Capture(context, "BookUI-07-defeat");
             controller.RestartBattle();
             Require(controller.Phase == BattlePhase.Preparation && controller.Allies[0].CurrentHealth == controller.Allies[0].MaxHealth, "Defeat restart failed.");
             Check(context, "Full 4v4 victory, defeat and both restart paths restore initial state");
+            Check(context, "Pinned enemy/ally deaths and restart release presentation pins without changing the battle model");
             RecordText(context);
         }
 
@@ -355,35 +404,18 @@ namespace CardCards.Validation
 
         private static IEnumerator PointerDrag(Context context, Vector2 start, Vector2 end)
         {
-            InputSettings previousSettings = InputSystem.settings;
-            InputSettings settings = UnityEngine.Object.Instantiate(previousSettings);
-            settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
-#if UNITY_EDITOR
-            settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
-#endif
-            var module = (InputSystemUIInputModule)EventSystem.current.currentInputModule;
-            InputActionAsset actions = module.actionsAsset;
-            ReadOnlyArray<InputDevice>? devices = actions.devices;
-            Mouse mouse = null;
-            try
+            Mouse mouse = context.mouse;
+            Require(mouse != null && mouse.enabled, "Pointer drag requires the suite's persistent virtual mouse.");
+            PreparePointer(context);
+            mouse.MakeCurrent();
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = start }); yield return null; yield return null;
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = start }.WithButton(MouseButton.Left)); yield return null; yield return null;
+            for (int step = 1; step <= 6; step++)
             {
-                InputSystem.settings = settings; mouse = InputSystem.AddDevice<Mouse>("VerificationDragMouse");
-                actions.devices = new[] { (InputDevice)mouse };
-                InputSystem.QueueStateEvent(mouse, new MouseState { position = start }); yield return null; yield return null;
-                InputSystem.QueueStateEvent(mouse, new MouseState { position = start }.WithButton(MouseButton.Left)); yield return null; yield return null;
-                for (int step = 1; step <= 6; step++)
-                {
-                    InputSystem.QueueStateEvent(mouse, new MouseState { position = Vector2.Lerp(start, end, step / 6f) }.WithButton(MouseButton.Left));
-                    yield return null; yield return null;
-                }
-                InputSystem.QueueStateEvent(mouse, new MouseState { position = end }); yield return null; yield return null;
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = Vector2.Lerp(start, end, step / 6f) }.WithButton(MouseButton.Left));
+                yield return null; yield return null;
             }
-            finally
-            {
-                actions.devices = devices;
-                if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
-                InputSystem.settings = previousSettings; UnityEngine.Object.Destroy(settings);
-            }
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = end }); yield return null; yield return null;
         }
 
         private static IEnumerator WaitForEnemy(Context context)
@@ -413,45 +445,32 @@ namespace CardCards.Validation
                 + ", message=" + context.controller.LastMessage);
             Canvas.ForceUpdateCanvases();
             var rect = (RectTransform)button.transform;
-            Vector2 position = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(rect.rect.center));
-            // Clone settings in memory; batch Editor has no focused Game View. Never save these settings.
-            InputSettings previousSettings = InputSystem.settings;
-            InputSettings verificationSettings = UnityEngine.Object.Instantiate(previousSettings);
-            verificationSettings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
-#if UNITY_EDITOR
-            verificationSettings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
-#endif
-            Mouse mouse = null;
-            var module = EventSystem.current.currentInputModule as InputSystemUIInputModule;
-            Require(module != null && module.actionsAsset != null, "Pointer verification requires a UI action asset.");
-            InputActionAsset actions = module.actionsAsset;
-            ReadOnlyArray<InputDevice>? previousDevices = actions.devices;
-            try
+            CharacterCardView card = button.GetComponentInParent<CharacterCardView>();
+            Vector2 position = card == null ? Center(rect) : CardFormationChecks.ClickablePoint(card);
+            Mouse mouse = context.mouse;
+            Require(mouse != null && mouse.enabled, "Pointer click requires the suite's persistent virtual mouse.");
+            PreparePointer(context);
+            mouse.MakeCurrent();
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = position });
+            yield return null;
+            yield return null;
+            if (card != null)
             {
-                InputSystem.settings = verificationSettings;
-                mouse = InputSystem.AddDevice<Mouse>("VerificationMouse");
-                // The real OS mouse can move during an automated run; restrict only these UI actions.
-                actions.devices = new[] { (InputDevice)mouse };
+                position = CardFormationChecks.ClickablePoint(card);
                 InputSystem.QueueStateEvent(mouse, new MouseState { position = position });
                 yield return null;
                 yield return null;
-                RecordInputDiagnostics(context, button, mouse, position, "move");
-                InputSystem.QueueStateEvent(mouse, new MouseState { position = position }.WithButton(MouseButton.Left));
-                yield return null;
-                yield return null;
-                RecordInputDiagnostics(context, button, mouse, position, "press");
-                InputSystem.QueueStateEvent(mouse, new MouseState { position = position });
-                yield return null;
-                yield return null;
-                RecordInputDiagnostics(context, button, mouse, position, "release");
+                Require(CardFormationChecks.HitsCard(card, position), "Hovered card moved away from its injected pointer click point.");
             }
-            finally
-            {
-                actions.devices = previousDevices;
-                if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
-                InputSystem.settings = previousSettings;
-                UnityEngine.Object.Destroy(verificationSettings);
-            }
+            RecordInputDiagnostics(context, button, mouse, position, "move");
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = position }.WithButton(MouseButton.Left));
+            yield return null;
+            yield return null;
+            RecordInputDiagnostics(context, button, mouse, position, "press");
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = position });
+            yield return null;
+            yield return null;
+            RecordInputDiagnostics(context, button, mouse, position, "release");
         }
 
         private static void RecordInputDiagnostics(Context context, Button button, Mouse mouse, Vector2 position, string step)
@@ -469,28 +488,75 @@ namespace CardCards.Validation
                 + ", eventFocused=" + events.isFocused + ", requested=" + position + ", mouse=" + mouse.position.ReadValue()
                 + ", pointEnabled/value=" + point + ", clickEnabled/value=" + click + ", raycast=" + hit
                 + ", screen=" + Screen.width + "x" + Screen.height + ", phase=" + context.controller.Phase
-                + ", temporaryBackgroundBehavior=" + InputSystem.settings.backgroundBehavior);
+                + ", temporaryBackgroundBehavior=" + InputSystem.settings.backgroundBehavior
+                + ", currentMouse=" + (Mouse.current == null ? "none" : Mouse.current.name + "#" + Mouse.current.deviceId)
+                + ", enabledMouseDevices=" + EnabledMouseDevices()
+                + ", moduleAsset=" + AssetIdentity(module == null ? null : module.actionsAsset)
+                + ", pointAction=" + ActionIdentity(module == null ? null : module.point?.action, module)
+                + ", clickAction=" + ActionIdentity(module == null ? null : module.leftClick?.action, module));
+        }
+
+        private static void PreparePointer(Context context)
+        {
+            var module = EventSystem.current.currentInputModule as InputSystemUIInputModule;
+            Require(module != null && module.actionsAsset != null, "Persistent pointer needs the real UI action asset.");
+            foreach (InputAction action in new[] { module.point?.action, module.leftClick?.action })
+            {
+                Require(action != null && action.enabled && action.actionMap != null
+                    && ReferenceEquals(action.actionMap.asset, module.actionsAsset),
+                    "Actual UI pointer actions must belong to the enabled module asset: " + ActionIdentity(action, module));
+                bool bound = false;
+                foreach (InputControl control in action.controls)
+                    if (ReferenceEquals(control.device, context.mouse)) { bound = true; break; }
+                Require(bound, "UI pointer action lost its persistent virtual mouse binding: " + ActionIdentity(action, module));
+            }
+        }
+
+        private static string ActionIdentity(InputAction action, InputSystemUIInputModule module)
+        {
+            if (action == null) return "missing";
+            InputActionMap map = action.actionMap;
+            var controls = new List<string>();
+            foreach (InputControl control in action.controls) controls.Add(control.path + "#" + control.device.deviceId);
+            return action.name + ",asset=" + AssetIdentity(map == null ? null : map.asset)
+                + ",sameModuleAsset=" + (map != null && module != null && ReferenceEquals(map.asset, module.actionsAsset))
+                + ",assetDevices=" + DeviceIdentity(map == null || map.asset == null ? null : map.asset.devices)
+                + ",mapDevices=" + DeviceIdentity(map == null ? null : map.devices)
+                + ",controls=" + string.Join("|", controls);
+        }
+
+        private static string AssetIdentity(InputActionAsset asset) => asset == null ? "none" : asset.name + "#" + asset.GetInstanceID();
+
+        private static string DeviceIdentity(ReadOnlyArray<InputDevice>? devices)
+        {
+            if (!devices.HasValue) return "all";
+            var result = new List<string>();
+            foreach (InputDevice device in devices.Value)
+                result.Add(device == null ? "null" : device.name + "#" + device.deviceId);
+            return string.Join("|", result);
+        }
+
+        private static string EnabledMouseDevices()
+        {
+            var result = new List<string>();
+            foreach (InputDevice device in InputSystem.devices)
+                if (device is Mouse) result.Add(device.name + "#" + device.deviceId + ":" + device.enabled);
+            return string.Join(",", result);
         }
 
         private static void VerifyLayout(Context context, string field, int count)
         {
-            RectTransform root = context.view.GetComponent<Canvas>().rootCanvas.transform as RectTransform;
             RectTransform row = ReadField<RectTransform>(context.view, field);
-            var bounds = new List<Rect>();
+            int visible = 0;
             foreach (CharacterCardView card in row.GetComponentsInChildren<CharacterCardView>())
             {
                 if (!card.gameObject.activeInHierarchy) continue;
-                var corners = new Vector3[4];
-                ((RectTransform)card.transform).GetWorldCorners(corners);
-                Vector3 min = root.InverseTransformPoint(corners[0]);
-                Vector3 max = root.InverseTransformPoint(corners[2]);
-                Rect rect = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
-                Require(rect.xMin >= root.rect.xMin - 0.5f && rect.xMax <= root.rect.xMax + 0.5f
-                    && rect.yMin >= root.rect.yMin - 0.5f && rect.yMax <= root.rect.yMax + 0.5f, "Character card extends beyond the Canvas.");
-                foreach (Rect previous in bounds) Require(!rect.Overlaps(previous), "Character cards overlap.");
-                bounds.Add(rect);
+                visible++;
             }
-            Require(bounds.Count == count, "Visible card count differs from formation.");
+            Require(visible == count, "Visible card count differs from formation.");
+            CardFormationLayout formation = field == "allyContainer" ? context.view.AllyFormation : context.view.EnemyFormation;
+            CardFormationChecks.VerifyVisualOrder(formation);
+            CardFormationChecks.VerifyGeometry(formation);
         }
 
         private static void VerifyFont(Context context)
@@ -519,6 +585,32 @@ namespace CardCards.Validation
                 if (!string.IsNullOrEmpty(text.text)) context.report.textSnapshot.Add(text.gameObject.name + ": " + text.text);
         }
 
+        private static IEnumerator CaptureFormationStates(Context context)
+        {
+            Vector2 empty = CardFormationChecks.BattlefieldEmptyPoint(context.view);
+            InputSystem.QueueStateEvent(context.mouse, new MouseState { position = empty });
+            yield return null; yield return null;
+            context.view.AllyFormation.ClearPin(); context.view.EnemyFormation.ClearPin();
+            context.view.InfoPanel.CloseTooltip();
+            yield return new WaitForSecondsRealtime(.35f);
+            yield return Capture(context, "CardFormation-01-default");
+            yield return PointerClick(context, CardButton(context, context.view.AllyFormation.Cards[1].Unit));
+            yield return PointerClick(context, CardButton(context, context.view.EnemyFormation.Cards[1].Unit));
+            InputSystem.QueueStateEvent(context.mouse, new MouseState { position = empty });
+            yield return null; yield return null;
+            context.view.InfoPanel.CloseTooltip();
+            yield return Capture(context, "CardFormation-02-both-pinned");
+            CharacterCardView hovered = context.view.AllyFormation.Cards[0];
+            InputSystem.QueueStateEvent(context.mouse, new MouseState { position = CardFormationChecks.ClickablePoint(hovered) });
+            yield return null; yield return null;
+            Require(ReferenceEquals(context.view.AllyFormation.HoveredCard, hovered), "Hover capture must use a real isolated pointer.");
+            yield return Capture(context, "CardFormation-03-hover-over-pin");
+            InputSystem.QueueStateEvent(context.mouse, new MouseState { position = empty });
+            yield return null; yield return null;
+            context.view.AllyFormation.ClearPin(); context.view.EnemyFormation.ClearPin();
+            context.view.InfoPanel.CloseTooltip();
+        }
+
         private static IEnumerator Capture(Context context, string name)
         {
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) yield break;
@@ -528,7 +620,8 @@ namespace CardCards.Validation
                     context.report.warnings.Add("Editor batch Play Mode screenshots are deferred to the Windows player capture.");
                 yield break;
             }
-            string directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(context.reportPath)), "BookUI-Screenshots");
+            string directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(context.reportPath)),
+                Path.GetFileNameWithoutExtension(context.reportPath) + "-Screenshots");
             Directory.CreateDirectory(directory);
             string path = Path.Combine(directory, name + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + ".png");
             Canvas.ForceUpdateCanvases();

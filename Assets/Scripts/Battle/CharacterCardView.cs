@@ -7,7 +7,8 @@ using UnityEngine.UI;
 namespace CardCards.Battle
 {
     /// <summary>One stable view per unit. Dragging commits a position change only on release.</summary>
-    public sealed class CharacterCardView : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
+    public sealed class CharacterCardView : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler,
+        IPointerEnterHandler, IPointerExitHandler
     {
         [SerializeField] private Image cardBackground;
         [SerializeField] private Image borderImage;
@@ -47,11 +48,26 @@ namespace CardCards.Battle
         private bool poseInitialized;
         private bool lastRotated;
         private float suppressClickUntil;
+        private CardFormationLayout formation;
 
         public BattleUnitState Unit => unit;
         public bool IsDragging => dragGhost != null;
 
         public void Initialize(BattleView battleView) { view = battleView; }
+
+        public void SetFormation(CardFormationLayout owner) { formation = owner; }
+
+        public void RefreshPresentationWidth() { UpdateVisualWidth(); }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (formation != null && unit != null && unit.IsAlive) formation.SetHovered(this, true);
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            if (formation != null) formation.SetHovered(this, false);
+        }
 
         public void Bind(BattleUnitState battleUnit, UnityAction<BattleUnitState> clickCallback, Font font)
         {
@@ -280,6 +296,8 @@ namespace CardCards.Battle
             CharacterCardView ghostView = ghostObject.GetComponent<CharacterCardView>();
             ghostView.ClearBinding();
             ghostView.enabled = false;
+            CardPresentation ghostPresentation = ghostObject.GetComponent<CardPresentation>();
+            if (ghostPresentation != null) ghostPresentation.SetInteractionEnabled(false);
             dragGhost = (RectTransform)ghostObject.transform;
             dragGhost.sizeDelta = ((RectTransform)transform).rect.size;
             CanvasGroup group = ghostObject.GetComponent<CanvasGroup>();
@@ -342,10 +360,19 @@ namespace CardCards.Battle
         private void HandleClicked()
         {
             if (Time.unscaledTime < suppressClickUntil) return;
-            if (unit != null && unit.IsAlive && cardButton.interactable) onClicked?.Invoke(unit);
+            if (unit != null && unit.IsAlive && cardButton.interactable)
+            {
+                if (formation != null) formation.Pin(this);
+                onClicked?.Invoke(unit);
+            }
         }
 
-        private void OnDisable() { CancelDrag(); StopHitFeedback(); }
+        private void OnDisable()
+        {
+            if (formation != null) formation.SetHovered(this, false);
+            CancelDrag();
+            StopHitFeedback();
+        }
         private void OnDestroy() { ClearBinding(); }
     }
 }

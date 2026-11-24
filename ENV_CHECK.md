@@ -1,4 +1,35 @@
-# 四操作、4v4 与装备 UI：交付及验证记录
+# 卡面、书本、四操作与 4v4：交付及验证记录
+
+## 最新交付：2026-11-24 卡面重叠、透视与调参工具
+
+依据：用户审核方案后明确要求“按此方案实施”。本次只调整双方角色卡面表现，保留原有战斗位次、行动规则、立绘及下方书本。已完成场景与 Prefab 接线，无需手工挂脚本或拖字段。
+
+- 双方分别按屏幕左到右计算显示编号，默认 1/3 覆盖 2/4；显示编号与战斗前排编号分开。
+- 悬停临时置顶；每侧可点击固定一张，悬停其他卡后离开恢复固定卡。点击同侧另一张切换，战场空白或 Esc 清除双方固定；死亡和重开清理失效状态。
+- 镜像平面透视、中央小两边大、相位不同的待机浮动。悬停保持当前浮动高度，拖拽回到基线；实际投影轮廓负责点击，边缘悬停保持区避免抬升后闪烁。
+- 菜单 `Card Cards/UI/卡面布局调节` 可调位置、重叠、缩放、透视、浮动、过渡及悬停展开；支持双方联动、暂停、Scene 编号/轮廓、恢复默认与 Undo。Play Mode 编辑副本，点击“保存参数”写入 `Assets/Data/Battle/CardFormation.asset`。
+
+实际核对 Unity 2022.3.62f3c1、URP 14.0.12、Input System 1.14.2、`activeInputHandler=1`。没有安装依赖或更改 Project Settings。
+
+| 本次实际检查 | 最终结果及边界 | 证据 |
+| --- | --- | --- |
+| Unity 编译及 Play Mode | 最终代码 38 项通过，捕获运行错误 0；完成 UTC 13:39:34。Null 图形设备、640×480，不用于证明渲染效果 | `Logs/CardFormation-PlayModeVerification.json`、`Logs/CardFormation-PlayMode.log` |
+| 参数持久化 | 使用窗口保存按钮共用的 `SavePreview` 路径，写入一次性测试资源并强制重新导入，核对磁盘及加载值通过；完成 UTC 13:14:07。测试资源已清理，正式配置未被测试值覆盖 | `Logs/CardFormation-TuningVerification.json`、`Logs/CardFormation-TuningVerification.log` |
+| 最终 Windows 构建 | Succeeded，0 errors / 0 warnings；完成 UTC 13:40:32，输出至 `Builds/CardFormation/Windows/CardCards.exe` | `Logs/CardFormation-WindowsBuild.json`、`Logs/CardFormation-Build.log` |
+| 最终 Windows 实际运行 | 39 项通过，捕获运行错误 0；Direct3D11、1280×720、Microsoft YaHei；完成 UTC 13:41:46 | `Logs/CardFormation-PlayerVerification.json`、`Logs/CardFormation-Player.log` |
+| 静态资源及保护范围 | 67 项资源/目录 meta 完整、GUID 及引用/绑定审查通过；75 个受保护文件一致。原场景 197 个非卡面序列化对象、Prefab 97 个既有组件保持原样，问题 0 项。两个原有可选空字段单独列出 | `Logs/CardFormation-StaticReview.json`、`Logs/CardFormation-Baseline/` |
+| 画面复核 | 实际查看最终 10 张截图：整备、默认遮挡、双方固定、悬停盖过固定、物品浮窗、装备、目标选择、整顿、胜利、失败。卡面留在书本上方，镜像大小与透视可见，书本操作区保持原布局 | 上述 Player 报告的 `screenshots`；位于 `Logs/CardFormation-PlayerVerification-Screenshots/`，本轮时间后缀为 `134127` 至 `134145` |
+| 人工操作 | 鼠标手感、美术取舍，以及编辑器窗口实际拖动滑条/按 Ctrl+Z，尚待用户验收；自动输入、保存路径检查及截图不等于人工试玩 | `Docs/CardFormation-Usage.md` 的人工验收步骤 |
+
+本次输入回归经真实 Input System → EventSystem → Button/拖拽处理链路执行，覆盖投影四角和透明外角、双方边缘悬停、24 单位抬升与 1.15 倍悬停缩放、浮动及暂停、双侧固定及切换、空白/Esc、死亡与重开；同时回归装备、浮窗、四行动、整顿插入换位及完整胜负。参数测试仅修改运行时副本，并在 `finally` 中恢复。
+
+验证器中修正了嵌套输入设备过滤的快照：`ReadOnlyArray` 只是底层数组视图，现使用数组副本恢复，防止结束子检查后 UI 指向已移除设备。输入隔离仅在显式验证期间运行，结束/失败时恢复，不改变普通游戏输入或项目配置。早期失败结果不作为通过证据，以上最终 JSON 的时间和状态为准。
+
+Unity 构建自动补写的 URP 序列化版本保存于 `Logs/CardFormation-UniversalRP-build-generated.asset`，工程内原文件已恢复并由受保护文件审查核对。早期构建曾有 `-nographics` 更新 Ambient/Reflection Probes 的警告；最终构建报告为 0 warnings。C# 与 Markdown 差异空白检查通过；Unity 生成的 scene/prefab 空字段行尾空格继续保留，未宣称全量 `git diff --check` 通过。
+
+接线：`Canvas/AllyRow`、`Canvas/EnemyRow` 使用 `CardFormationLayout`，旧 `HorizontalLayoutGroup` 停用并保留；`CharacterCard.prefab` 新增 `CardPresentation`，运行时配置网格投影与透明命中图形；`BattleView` 已绑定正式配置。未新增 Layer、碰撞或动画事件。下方书本及背包/装备脚本未修改。
+
+使用说明与技术学习报告：`Docs/CardFormation-Usage.md`、`Docs/CardFormation-Learning.md`。Windows 包需保留整个 `Builds/CardFormation/Windows/` 目录。用户已有 `AGENTS.md` 和策划案文件保留，未提交或推送。
 
 ## 最新恢复记录：2026-11-24 书本界面
 

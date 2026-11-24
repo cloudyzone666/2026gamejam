@@ -13,6 +13,7 @@ namespace CardCards.Battle
         [SerializeField] private CharacterCardView characterCardPrefab;
         [SerializeField] private RectTransform allyContainer;
         [SerializeField] private RectTransform enemyContainer;
+        [SerializeField] private CardFormationSettings cardFormationSettings;
         [Header("Battle information")]
         [SerializeField] private Text turnText;
         [SerializeField] private Text instructionText;
@@ -42,6 +43,9 @@ namespace CardCards.Battle
         private bool buttonsBound;
         private bool configured;
         private EquipmentItemView activeEquipmentDrag;
+        private CardFormationSettings runtimePresentationSettings;
+        private readonly List<CharacterCardView> visibleCards = new List<CharacterCardView>(4);
+        private readonly List<RaycastResult> pointerHits = new List<RaycastResult>();
 
         public BattleController Controller => controller;
         public RectTransform DragLayer => dragLayer;
@@ -49,6 +53,9 @@ namespace CardCards.Battle
         public InventoryGridView BackpackGrid => backpackGrid;
         public EquipmentItemView SelectedEquipment { get; private set; }
         public bool IsDraggingEquipment => activeEquipmentDrag != null;
+        public CardFormationLayout AllyFormation { get; private set; }
+        public CardFormationLayout EnemyFormation { get; private set; }
+        public CardFormationSettings PresentationSettings => runtimePresentationSettings != null ? runtimePresentationSettings : cardFormationSettings;
         public bool CanReorderCards => controller != null && (controller.Phase == BattlePhase.Preparation || controller.Phase == BattlePhase.Reorganizing);
 
         public void Initialize(BattleController battleController)
@@ -61,6 +68,18 @@ namespace CardCards.Battle
                 return;
             }
             Font font = GetInterfaceFont();
+            if (runtimePresentationSettings == null)
+            {
+                runtimePresentationSettings = cardFormationSettings != null
+                    ? Instantiate(cardFormationSettings) : ScriptableObject.CreateInstance<CardFormationSettings>();
+                runtimePresentationSettings.name = "Card Formation (Runtime Preview)";
+                AllyFormation = allyContainer.GetComponent<CardFormationLayout>();
+                if (AllyFormation == null) AllyFormation = allyContainer.gameObject.AddComponent<CardFormationLayout>();
+                EnemyFormation = enemyContainer.GetComponent<CardFormationLayout>();
+                if (EnemyFormation == null) EnemyFormation = enemyContainer.gameObject.AddComponent<CardFormationLayout>();
+                AllyFormation.Configure(runtimePresentationSettings, false);
+                EnemyFormation.Configure(runtimePresentationSettings, true);
+            }
             foreach (Text text in GetComponentsInChildren<Text>(true)) text.font = font;
             if (EventSystem.current != null) EventSystem.current.pixelDragThreshold = 6;
             infoPanel.Initialize(this);
@@ -126,11 +145,8 @@ namespace CardCards.Battle
                 Destroy(cards[oldUnit].gameObject);
                 cards.Remove(oldUnit);
             }
-            int count = 0;
-            foreach (BattleUnitState unit in units) if (unit.IsAlive) count++;
-            float width = count >= 4 ? 134f : count == 3 ? 177f : 190f;
-            HorizontalLayoutGroup layout = container.GetComponent<HorizontalLayoutGroup>();
-            if (layout != null) layout.spacing = count >= 4 ? 20f : count == 3 ? 32f : 56f;
+            CardFormationLayout formation = isEnemy ? EnemyFormation : AllyFormation;
+            visibleCards.Clear();
             foreach (BattleUnitState unit in units)
             {
                 CharacterCardView card;
@@ -150,13 +166,13 @@ namespace CardCards.Battle
                 card.gameObject.SetActive(unit.IsAlive);
                 if (!unit.IsAlive) continue;
                 int order = controller.GetLivingOrder(unit);
-                card.transform.SetSiblingIndex(order - 1);
-                ((RectTransform)card.transform).SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+                visibleCards.Add(card);
                 int distance = isEnemy && controller.SelectedAlly != null ? controller.GetDistance(controller.SelectedAlly, unit) : 0;
                 bool target = controller.Phase == BattlePhase.SelectingTarget && controller.CanTarget(unit);
                 card.Refresh(ReferenceEquals(unit, controller.SelectedAlly), target, true,
                     ReferenceEquals(unit, controller.ActiveEnemy), order, distance);
             }
+            formation.SetCards(visibleCards);
         }
 
         private static bool Contains(IReadOnlyList<BattleUnitState> units, BattleUnitState target)
@@ -177,7 +193,7 @@ namespace CardCards.Battle
             foreach (BattleUnitState ally in controller.Allies)
             {
                 if (!ally.IsAlive) continue;
-                float x = RectTransformUtility.WorldToScreenPoint(null, allyCards[ally].transform.position).x;
+                float x = AllyFormation.GetCardScreenPosition(allyCards[ally]).x;
                 if (!found) { firstX = x; found = true; }
                 lastX = x;
             }
@@ -186,7 +202,7 @@ namespace CardCards.Battle
             foreach (BattleUnitState ally in controller.Allies)
             {
                 if (!ally.IsAlive || ReferenceEquals(ally, unit)) continue;
-                float x = RectTransformUtility.WorldToScreenPoint(null, allyCards[ally].transform.position).x;
+                float x = AllyFormation.GetCardScreenPosition(allyCards[ally]).x;
                 if (increasing ? screenPoint.x > x : screenPoint.x < x) insertion++;
             }
             string error;
@@ -205,11 +221,38 @@ namespace CardCards.Battle
             if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
             {
                 infoPanel.CloseTooltip();
+                ClearCardPins();
                 if (activeEquipmentDrag != null) activeEquipmentDrag.CancelDrag();
                 if (controller.Phase == BattlePhase.SelectingTarget) controller.CancelSelection();
             }
             if (SelectedEquipment != null && Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
                 SelectedEquipment.Rotate();
+            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && !IsDraggingEquipment)
+            {
+                Vector2 position = Mouse.current.position.ReadValue();
+                if (IsEmptyBattlefieldPoint(position)) ClearCardPins();
+            }
+        }
+
+        public void ClearCardPins()
+        {
+            if (AllyFormation != null) AllyFormation.ClearPin();
+            if (EnemyFormation != null) EnemyFormation.ClearPin();
+        }
+
+        private bool IsEmptyBattlefieldPoint(Vector2 point)
+        {
+            RectTransform canvas = (RectTransform)transform;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(canvas, point, null, out Vector2 local)) return false;
+            float fromTop = canvas.rect.yMax - local.y;
+            if (fromTop < 36f || fromTop > 286f) return false;
+            pointerHits.Clear();
+            if (EventSystem.current != null)
+                EventSystem.current.RaycastAll(new PointerEventData(EventSystem.current) { position = point }, pointerHits);
+            foreach (RaycastResult hit in pointerHits)
+                if (hit.gameObject.GetComponentInParent<CharacterCardView>() != null
+                    || hit.gameObject.GetComponentInParent<Selectable>() != null) return false;
+            return true;
         }
 
         public bool BeginEquipmentDrag(EquipmentItemView itemView)
@@ -330,6 +373,7 @@ namespace CardCards.Battle
         }
         private void HandleRestart()
         {
+            ClearCardPins();
             if (activeEquipmentDrag != null) activeEquipmentDrag.CancelDrag();
             SelectedEquipment = null;
             controller.RestartBattle();
@@ -352,6 +396,7 @@ namespace CardCards.Battle
 
         private void OnDestroy()
         {
+            if (runtimePresentationSettings != null) Destroy(runtimePresentationSettings);
             if (!buttonsBound) return;
             standbyButton.onClick.RemoveListener(HandleStandby);
             rotateButton.onClick.RemoveListener(HandleRotate);

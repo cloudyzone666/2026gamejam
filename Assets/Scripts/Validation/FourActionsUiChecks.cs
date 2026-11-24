@@ -48,7 +48,9 @@ namespace CardCards.Validation
             settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
 #endif
             InputActionAsset actions = module.actionsAsset;
-            ReadOnlyArray<InputDevice>? previousDevices = actions.devices;
+            // ReadOnlyArray is a view over the asset's reusable device buffer, not a snapshot.
+            // Copy before nested test filters overwrite that buffer.
+            InputDevice[] previousDevices = actions.devices.HasValue ? actions.devices.Value.ToArray() : null;
             Mouse previousMouse = Mouse.current;
             Keyboard previousKeyboard = Keyboard.current;
             Mouse mouse = null;
@@ -75,6 +77,8 @@ namespace CardCards.Validation
                 Canvas.ForceUpdateCanvases();
                 TracePointer(view, mouse, Vector2.zero, "isolated virtual mouse/keyboard; suspended=" + suspendedDevices.Count,
                     inputDiagnostics);
+
+                yield return CardFormationChecks.Run(view, checks, mouse, keyboard);
 
                 BattleUnitState originalInspection = view.InfoPanel.InspectedAlly;
                 Vector2 emptyPoint = new Vector2(15f, Screen.height - 15f);
@@ -120,14 +124,17 @@ namespace CardCards.Validation
                 checks.Add("Real enemy hover previews and pointer exit hides; click pins, outside click/Escape closes, the book retains its ally, and tooltip graphics never block UI input");
 
                 // Keep the model's identity order even though the ally row is visually reversed.
-                Vector2 first = CardCenter(view, originalOrder[0]);
-                Vector2 second = CardCenter(view, originalOrder[1]);
+                Vector2 first = CardPosition(view, originalOrder[0]);
+                Vector2 second = CardPosition(view, originalOrder[1]);
                 yield return Drag(mouse, CardCenter(view, originalOrder[3]), (first + second) * .5f);
                 Require(ReferenceEquals(controller.Allies[0], originalOrder[0])
                     && ReferenceEquals(controller.Allies[1], originalOrder[3])
                     && ReferenceEquals(controller.Allies[2], originalOrder[1])
                     && ReferenceEquals(controller.Allies[3], originalOrder[2]),
                     "Pointer card drag must produce [A,D,B,C] and preserve the other relative order.");
+                yield return new WaitForSecondsRealtime(.35f);
+                CardFormationChecks.VerifyVisualOrder(view.AllyFormation);
+                CardFormationChecks.VerifyBattleOrder(view);
                 Require(controller.TryMoveAlly(originalOrder[3], 3, out string error), "Card drag restore failed: " + error);
                 checks.Add("Real pointer drag inserts D before B as [A,D,B,C], with stable unit identities");
                 yield return null;
@@ -384,8 +391,16 @@ namespace CardCards.Validation
         private static Vector2 CardCenter(BattleView view, BattleUnitState unit)
         {
             foreach (CharacterCardView candidate in view.GetComponentsInChildren<CharacterCardView>())
-                if (ReferenceEquals(candidate.Unit, unit)) return Center((RectTransform)candidate.transform);
+                if (ReferenceEquals(candidate.Unit, unit)) return CardFormationChecks.ClickablePoint(candidate);
             throw new InvalidOperationException("No active card view for " + unit.Name);
+        }
+
+        private static Vector2 CardPosition(BattleView view, BattleUnitState unit)
+        {
+            CardFormationLayout formation = unit.IsEnemy ? view.EnemyFormation : view.AllyFormation;
+            foreach (CharacterCardView candidate in formation.Cards)
+                if (ReferenceEquals(candidate.Unit, unit)) return formation.GetCardScreenPosition(candidate);
+            throw new InvalidOperationException("No formation position for " + unit.Name);
         }
 
         private static Vector2 FirstCellCenter(InventoryGridView grid)

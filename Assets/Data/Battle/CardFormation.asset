@@ -1,0 +1,48 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d097e48d5426c94abfc161a9e99078d, type: 3}
+  m_Name: CardFormation
+  m_EditorClassIdentifier: 
+  perspectiveCenter: {x: 735, y: 180}
+  perspectiveDistance: 1306.7
+  ally:
+    position: {x: 300, y: 150}
+    cardSize: {x: 160, y: 274}
+    overlap: 0.072
+    innerScale: 0.76
+    outerScale: 0.81
+    scaleExponent: 2.03
+    yaw: 23.7
+    floatEnabled: 1
+    floatAmplitude: 3.8
+    floatPeriod: 3
+    floatPhase: 0.9
+    transitionDuration: 0.16
+    hoverLift: 0
+    hoverScale: 1
+  enemy:
+    position: {x: 980, y: 150}
+    cardSize: {x: 160, y: 274}
+    overlap: 0.072
+    innerScale: 0.76
+    outerScale: 0.81
+    scaleExponent: 2.03
+    yaw: 23.7
+    floatEnabled: 1
+    floatAmplitude: 3.8
+    floatPeriod: 3
+    floatPhase: 0.9
+    transitionDuration: 0.16
+    hoverLift: 0
+    hoverScale: 1
+  pauseFloat: 0
+  showDebug: 0

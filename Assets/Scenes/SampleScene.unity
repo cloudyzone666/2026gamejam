@@ -2315,6 +2315,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1006445431}
   - component: {fileID: 1006445432}
+  - component: {fileID: 1006445433}
   m_Layer: 5
   m_Name: EnemyRow
   m_TagString: Untagged
@@ -2331,7 +2332,7 @@ RectTransform:
   m_GameObject: {fileID: 1006445430}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 0.78, y: 0.78, z: 1}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1846497115}
@@ -2339,7 +2340,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
   m_AnchoredPosition: {x: 980, y: -157}
-  m_SizeDelta: {x: 744, y: 310}
+  m_SizeDelta: {x: 235, y: 392.36}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1006445432
 MonoBehaviour:
@@ -2348,7 +2349,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1006445430}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 30649d3a9faa99c48a7b1166b86bf2a0, type: 3}
   m_Name: 
@@ -2367,6 +2368,20 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
+--- !u!114 &1006445433
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1006445430}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b4856477076f44a498a1a3faac5b66e1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  settings: {fileID: 11400000, guid: 69619080dacc4824ea0cbaf9f45233fe, type: 2}
+  isEnemy: 1
 --- !u!1 &1083439757
 GameObject:
   m_ObjectHideFlags: 0
@@ -2377,6 +2392,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1083439758}
   - component: {fileID: 1083439759}
+  - component: {fileID: 1083439760}
   m_Layer: 5
   m_Name: AllyRow
   m_TagString: Untagged
@@ -2393,7 +2409,7 @@ RectTransform:
   m_GameObject: {fileID: 1083439757}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 0.78, y: 0.78, z: 1}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1846497115}
@@ -2401,7 +2417,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
   m_AnchoredPosition: {x: 300, y: -157}
-  m_SizeDelta: {x: 744, y: 310}
+  m_SizeDelta: {x: 235, y: 392.36}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1083439759
 MonoBehaviour:
@@ -2410,7 +2426,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1083439757}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 30649d3a9faa99c48a7b1166b86bf2a0, type: 3}
   m_Name: 
@@ -2429,6 +2445,20 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 1
+--- !u!114 &1083439760
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1083439757}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b4856477076f44a498a1a3faac5b66e1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  settings: {fileID: 11400000, guid: 69619080dacc4824ea0cbaf9f45233fe, type: 2}
+  isEnemy: 0
 --- !u!1 &1165870035
 GameObject:
   m_ObjectHideFlags: 0
@@ -3638,6 +3668,7 @@ MonoBehaviour:
   characterCardPrefab: {fileID: 100050, guid: 570d6af1460b4625b93a2164205dc331, type: 3}
   allyContainer: {fileID: 1083439758}
   enemyContainer: {fileID: 1006445431}
+  cardFormationSettings: {fileID: 11400000, guid: 69619080dacc4824ea0cbaf9f45233fe, type: 2}
   turnText: {fileID: 2073143125}
   instructionText: {fileID: 511892831}
   selectionText: {fileID: 0}

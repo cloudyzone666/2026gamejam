@@ -35,6 +35,12 @@ Unity 工程目录为本目录，版本 **2022.3.62f3c1**，使用 URP 14.0.12 �
 - 生命条按当前生命/上限填充。攻击没有“最大攻击”属性，绿色攻击条只是视觉底纹，以数字表示实际攻击。双方卡面下方显示蓝色护盾条与当前值/上限，卡面旋转时仍保持正向；战斗规则中的护甲在界面上称为护盾。
 - 回合、AP、开始/结束回合、取消及终局重开保留为精简控件。旧日志区、角色/物品/敌人页签和面板已由书页与浮窗取代；参考图上方四块区域暂不制作。
 
+## 卡面布局与调参
+
+2026-11-24 新增上方卡面重叠与透视：双方各自按屏幕左到右计算 1–4 显示编号，1/3 覆盖 2/4；悬停临时置顶，每侧点击可固定一张，战场空白或 Esc 解除。编号不改变战斗前排与距离。卡面待机浮动、悬停暂停；下方书本沿用既有布局。
+
+菜单 `Card Cards/UI/卡面布局调节` 提供透视中心、倾角、内外缩放、重叠、浮动与悬停参数。Play Mode 调整运行时副本，点击“保存参数”才写入 `Assets/Data/Battle/CardFormation.asset`，退出后保留。场景与 Prefab 已接线，正常使用无需 authoring 菜单。详细说明见 `Docs/CardFormation-Usage.md`，技术学习报告见 `Docs/CardFormation-Learning.md`；当前验证以 `ENV_CHECK.md` 最新记录为准。
+
 ## 文件阅读顺序
 
 1. `Assets/Data/Battle/FourVsFour.asset`、`Assets/Data/Equipment/`：当前场景使用的 4v4 编成、形态与装备资源；`FirstBattle.asset` 保留为旧首战配置。
@@ -51,7 +57,8 @@ Unity 工程目录为本目录，版本 **2022.3.62f3c1**，使用 URP 14.0.12 �
 - `Docs/FourActions-Learning.md`：本轮技术学习报告与代码阅读顺序。
 - `Docs/CharacterArt-Learning.md`：人物素材来源、裁图范围、Inspector 接线与立绘显示学习记录。
 - `Docs/BookUI-Learning.md`：书本界面、填充条、正向护盾、浮窗及单装备槽的学习报告与练习。
+- `Docs/CardFormation-Usage.md`、`Docs/CardFormation-Learning.md`：卡面重叠、透视、浮动、调参工具及学习报告。
 - `Docs/Plans/2026-11-24-book-ui-recovery.md`：本次中断恢复时的只读检查、已完成部分和续做范围。
 - `ENV_CHECK.md`：实际编译、Play Mode、Windows 构建、Player 及人工检查结果；以此文件记录的日期和证据为准。
 
-本次书本界面的 Windows Development 包入口为 `Builds/BookUI/Windows/CardCards.exe`，中文界面使用 Windows 系统微软雅黑。运行或分发时必须保留整个 `Builds/BookUI/Windows/` 目录，包括数据目录和依赖文件，不能只复制 exe。当前验证状态及证据见 `ENV_CHECK.md`。
+本次卡面优化的 Windows Development 包入口为 `Builds/CardFormation/Windows/CardCards.exe`，中文界面使用 Windows 系统微软雅黑。运行或分发时必须保留整个 `Builds/CardFormation/Windows/` 目录，包括数据目录和依赖文件，不能只复制 exe。当前验证状态及证据见 `ENV_CHECK.md`。

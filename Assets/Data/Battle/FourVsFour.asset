@@ -1,0 +1,373 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e8e79ae23622423ab2a034695a20d1a0, type: 3}
+  m_Name: FourVsFour
+  m_EditorClassIdentifier: 
+  allies:
+  - name: "\u65E0\u540D\u5251\u5BA2"
+    portrait: {fileID: 21300000, guid: 7b2d3dd8e3f904c4e8235863247edef5, type: 3}
+    baseHealth: 40
+    baseArmor: 6
+    attackRange: 2
+    initialAttack: 10
+    standbyBonusDamage: 6
+    attackMultiplier: 1
+    healthMultiplier: 1
+    armorMultiplier: 1
+    frontTop:
+      name: "\u5251\u58EB"
+      initialAttack: 8
+      attackMultiplier: 1
+      healthMultiplier: 1
+      armorMultiplier: 1
+      standby:
+      - kind: 0
+        target: 3
+        amount: -2
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: -3
+        scaling: 1
+    frontBottom:
+      name: "\u5B88\u536B"
+      initialAttack: 4
+      attackMultiplier: 0.9
+      healthMultiplier: 1.2
+      armorMultiplier: 1.5
+      standby:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 3
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+    back:
+      name: "\u955C\u5F71"
+      initialAttack: 6
+      attackMultiplier: 1.1
+      healthMultiplier: 0.9
+      armorMultiplier: 1
+      standby: []
+      rotation: []
+      flip:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+    startingEquipment:
+    - {fileID: 11400000, guid: 4138dda89e959824a8677a547e7c83ff, type: 2}
+    - {fileID: 11400000, guid: 540167c27146a1f48ad554d4f582de1a, type: 2}
+    equipmentSlots:
+    - kind: 0
+      width: 2
+      height: 1
+      count: 2
+    - kind: 1
+      width: 2
+      height: 1
+      count: 2
+    - kind: 2
+      width: 2
+      height: 2
+      count: 4
+    buffs: []
+  - name: "\u65E0\u540D\u5251\u5BA2\xB7\u5F71"
+    portrait: {fileID: 21300000, guid: 7b2d3dd8e3f904c4e8235863247edef5, type: 3}
+    baseHealth: 44
+    baseArmor: 4
+    attackRange: 3
+    initialAttack: 10
+    standbyBonusDamage: 6
+    attackMultiplier: 1
+    healthMultiplier: 1
+    armorMultiplier: 1
+    frontTop:
+      name: "\u5251\u58EB"
+      initialAttack: 8
+      attackMultiplier: 1
+      healthMultiplier: 1
+      armorMultiplier: 1
+      standby:
+      - kind: 0
+        target: 3
+        amount: -2
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: -3
+        scaling: 1
+    frontBottom:
+      name: "\u5B88\u536B"
+      initialAttack: 4
+      attackMultiplier: 0.9
+      healthMultiplier: 1.2
+      armorMultiplier: 1.5
+      standby:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 3
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+    back:
+      name: "\u955C\u5F71"
+      initialAttack: 6
+      attackMultiplier: 1.1
+      healthMultiplier: 0.9
+      armorMultiplier: 1
+      standby: []
+      rotation: []
+      flip:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+    startingEquipment:
+    - {fileID: 11400000, guid: 4138dda89e959824a8677a547e7c83ff, type: 2}
+    - {fileID: 11400000, guid: 540167c27146a1f48ad554d4f582de1a, type: 2}
+    equipmentSlots:
+    - kind: 0
+      width: 2
+      height: 1
+      count: 2
+    - kind: 1
+      width: 2
+      height: 1
+      count: 2
+    - kind: 2
+      width: 2
+      height: 2
+      count: 4
+    buffs: []
+  - name: "\u65E0\u540D\u5251\u5BA2\xB7\u4E09"
+    portrait: {fileID: 21300000, guid: 7b2d3dd8e3f904c4e8235863247edef5, type: 3}
+    baseHealth: 40
+    baseArmor: 6
+    attackRange: 4
+    initialAttack: 10
+    standbyBonusDamage: 6
+    attackMultiplier: 1
+    healthMultiplier: 1
+    armorMultiplier: 1
+    frontTop:
+      name: "\u5251\u58EB"
+      initialAttack: 8
+      attackMultiplier: 1
+      healthMultiplier: 1
+      armorMultiplier: 1
+      standby:
+      - kind: 0
+        target: 3
+        amount: -2
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: -3
+        scaling: 1
+    frontBottom:
+      name: "\u5B88\u536B"
+      initialAttack: 4
+      attackMultiplier: 0.9
+      healthMultiplier: 1.2
+      armorMultiplier: 1.5
+      standby:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 3
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+    back:
+      name: "\u955C\u5F71"
+      initialAttack: 6
+      attackMultiplier: 1.1
+      healthMultiplier: 0.9
+      armorMultiplier: 1
+      standby: []
+      rotation: []
+      flip:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+    startingEquipment:
+    - {fileID: 11400000, guid: 4138dda89e959824a8677a547e7c83ff, type: 2}
+    - {fileID: 11400000, guid: 540167c27146a1f48ad554d4f582de1a, type: 2}
+    equipmentSlots:
+    - kind: 0
+      width: 2
+      height: 1
+      count: 2
+    - kind: 1
+      width: 2
+      height: 1
+      count: 2
+    - kind: 2
+      width: 2
+      height: 2
+      count: 4
+    buffs: []
+  - name: "\u65E0\u540D\u5251\u5BA2\xB7\u56DB"
+    portrait: {fileID: 21300000, guid: 7b2d3dd8e3f904c4e8235863247edef5, type: 3}
+    baseHealth: 44
+    baseArmor: 4
+    attackRange: 5
+    initialAttack: 10
+    standbyBonusDamage: 6
+    attackMultiplier: 1
+    healthMultiplier: 1
+    armorMultiplier: 1
+    frontTop:
+      name: "\u5251\u58EB"
+      initialAttack: 8
+      attackMultiplier: 1
+      healthMultiplier: 1
+      armorMultiplier: 1
+      standby:
+      - kind: 0
+        target: 3
+        amount: -2
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: -3
+        scaling: 1
+    frontBottom:
+      name: "\u5B88\u536B"
+      initialAttack: 4
+      attackMultiplier: 0.9
+      healthMultiplier: 1.2
+      armorMultiplier: 1.5
+      standby:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+      rotation:
+      - kind: 0
+        target: 3
+        amount: 3
+        scaling: 1
+      flip:
+      - kind: 0
+        target: 3
+        amount: 0
+        scaling: 1
+    back:
+      name: "\u955C\u5F71"
+      initialAttack: 6
+      attackMultiplier: 1.1
+      healthMultiplier: 0.9
+      armorMultiplier: 1
+      standby: []
+      rotation: []
+      flip:
+      - kind: 0
+        target: 3
+        amount: 1
+        scaling: 1
+    startingEquipment:
+    - {fileID: 11400000, guid: 4138dda89e959824a8677a547e7c83ff, type: 2}
+    - {fileID: 11400000, guid: 540167c27146a1f48ad554d4f582de1a, type: 2}
+    equipmentSlots:
+    - kind: 0
+      width: 2
+      height: 1
+      count: 2
+    - kind: 1
+      width: 2
+      height: 1
+      count: 2
+    - kind: 2
+      width: 2
+      height: 2
+      count: 4
+    buffs: []
+  enemies:
+  - name: "\u8150\u5316\u53F2\u83B1\u59C6 A"
+    portrait: {fileID: 21300000, guid: 87d12f9087e68794e884daeb8e86481c, type: 3}
+    maxHealth: 30
+    maxArmor: 2
+    attackRange: 4
+    intentDamage: 060000000600000009000000
+  - name: "\u8150\u5316\u53F2\u83B1\u59C6 B"
+    portrait: {fileID: 21300000, guid: 87d12f9087e68794e884daeb8e86481c, type: 3}
+    maxHealth: 30
+    maxArmor: 2
+    attackRange: 4
+    intentDamage: 060000000600000009000000
+  - name: "\u8150\u5316\u53F2\u83B1\u59C6 C"
+    portrait: {fileID: 21300000, guid: 87d12f9087e68794e884daeb8e86481c, type: 3}
+    maxHealth: 30
+    maxArmor: 2
+    attackRange: 4
+    intentDamage: 060000000600000009000000
+  - name: "\u8150\u5316\u53F2\u83B1\u59C6 D"
+    portrait: {fileID: 21300000, guid: 87d12f9087e68794e884daeb8e86481c, type: 3}
+    maxHealth: 30
+    maxArmor: 2
+    attackRange: 4
+    intentDamage: 060000000600000009000000
+  backpackEquipment:
+  - {fileID: 11400000, guid: a4c5caaba022c814eb82ac9011b3d983, type: 2}
+  - {fileID: 11400000, guid: 3731a510370d4944eb28c699751f08b8, type: 2}
+  - {fileID: 11400000, guid: 2bfa33ff58d2ff44ebbe18830d344b69, type: 2}
+  - {fileID: 11400000, guid: c9e7d2ec2754fc24fab6ae87861919bc, type: 2}

@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c4af8123b18540d58759b3e7c677ac5b, type: 3}
+  m_Name: LeatherArmor
+  m_EditorClassIdentifier: 
+  displayName: "\u76AE\u7532"
+  kind: 1
+  width: 2
+  height: 1
+  canRotate: 1
+  description: "\u8F7B\u4FBF\u62A4\u5177\u3002\u8F6C\u8EAB\u65F6\u6539\u53D8\u9632\u62A4\u91CD\u5FC3\u3002"
+  top:
+    attack: 0
+    health: 4
+    armor: 2
+    standby: []
+    rotation: []
+  bottom:
+    attack: 0
+    health: 8
+    armor: 1
+    standby: []
+    rotation: []

@@ -38,7 +38,7 @@ namespace CardCards.Validation
             int pathIndex = Array.IndexOf(arguments, "--battle-smoke-report");
             reportPath = pathIndex >= 0 && pathIndex + 1 < arguments.Length
                 ? Path.GetFullPath(arguments[pathIndex + 1])
-                : Path.Combine(Application.dataPath, "..", "Logs", "BattlePlayerVerification.json");
+                : Path.Combine(Application.dataPath, "..", "Logs", "BookUI-PlayerVerification.json");
             report = new BattleVerificationReport { source = "Windows Development Player" };
             Application.logMessageReceived += ReceiveLog;
             yield return null;
@@ -62,6 +62,11 @@ namespace CardCards.Validation
                 }
                 if (current is IEnumerator nested) stack.Push(nested);
                 else if (stack.Count > 0) yield return current;
+            }
+            while (stack.Count > 0)
+            {
+                try { (stack.Pop() as IDisposable)?.Dispose(); }
+                catch (Exception exception) { report.runtimeErrors.Add("Verification cleanup: " + exception); }
             }
             report.success = string.IsNullOrEmpty(report.failure) && report.runtimeErrors.Count == 0;
             BattleVerificationSuite.WriteReport(report, reportPath);
@@ -111,234 +116,273 @@ namespace CardCards.Validation
 
         public static IEnumerator Run(BattleVerificationReport report, string reportPath)
         {
-            float deadline = Time.realtimeSinceStartup + 20f;
-            BattleController controller;
-            while ((controller = UnityEngine.Object.FindObjectOfType<BattleController>()) == null || controller.TurnNumber == 0)
+            var suspendedDevices = new List<InputDevice>();
+            Mouse previousMouse = Mouse.current;
+            Keyboard previousKeyboard = Keyboard.current;
+            try
             {
-                Require(Time.realtimeSinceStartup < deadline, "Battle scene did not initialize within 20 seconds.");
+                // Keep native input from reopening hover details between the suite's virtual devices.
+                // This state is confined to opt-in verification and restored even if a nested check fails.
+                foreach (InputDevice device in InputSystem.devices)
+                {
+                    if (!(device is Mouse) && !(device is Keyboard) || !device.enabled) continue;
+                    suspendedDevices.Add(device);
+                    InputSystem.DisableDevice(device);
+                }
+                report.inputDiagnostics.Add("BookUI suite suspended enabled native mouse/keyboard devices: " + suspendedDevices.Count);
+                yield return RunIsolated(report, reportPath);
+            }
+            finally
+            {
+                foreach (InputDevice device in suspendedDevices)
+                    if (device.added) InputSystem.EnableDevice(device);
+                if (previousMouse != null && previousMouse.added) previousMouse.MakeCurrent();
+                if (previousKeyboard != null && previousKeyboard.added) previousKeyboard.MakeCurrent();
+            }
+        }
+
+        private static IEnumerator RunIsolated(BattleVerificationReport report, string reportPath)
+        {
+            float deadline = Time.realtimeSinceStartup + 30f;
+            BattleController controller;
+            while ((controller = UnityEngine.Object.FindObjectOfType<BattleController>()) == null || controller.Backpack == null)
+            {
+                Require(Time.realtimeSinceStartup < deadline, "Battle scene initialization timed out.");
                 yield return null;
             }
-
-            var context = new Context
-            {
-                controller = controller,
-                view = UnityEngine.Object.FindObjectOfType<BattleView>(),
-                report = report,
-                reportPath = reportPath
-            };
-            Require(context.view != null, "BattleView is missing.");
+            var context = new Context { controller = controller, view = UnityEngine.Object.FindObjectOfType<BattleView>(), report = report, reportPath = reportPath };
+            Require(context.view != null, "BattleView missing.");
             report.unityVersion = Application.unityVersion;
             report.graphicsDevice = SystemInfo.graphicsDeviceType.ToString();
-            report.screenWidth = Screen.width;
-            report.screenHeight = Screen.height;
-            Require(UnityEngine.Object.FindObjectsOfType<BattleController>().Length == 1, "Expected one BattleController.");
-            EventSystem[] systems = UnityEngine.Object.FindObjectsOfType<EventSystem>();
-            Require(systems.Length == 1 && systems[0].currentInputModule != null
-                && systems[0].currentInputModule.GetType().Name == "InputSystemUIInputModule", "Expected one active New Input System UI module.");
-            CanvasScaler scaler = context.view.GetComponent<CanvasScaler>();
-            Require(scaler != null && scaler.referenceResolution == new Vector2(1280f, 720f), "Canvas must use the approved reference resolution.");
-            if (!Application.isEditor)
-                Require(Screen.width == 1280 && Screen.height == 720 && !Screen.fullScreen, "Windows player must open at 1280 x 720 in a window.");
-            SetField(controller, "enemyActionDelay", 0.01f);
-            BattleDefinition original = ReadField<BattleDefinition>(controller, "definition");
-            string originalJson = JsonUtility.ToJson(original);
-            CheckInitial(context);
-            VerifyFont(context);
-            RecordText(context);
-            Check(context, "Default scene, input module, Canvas, and 2v2 initialization");
-            yield return Capture(context, "01-initial");
-
-            BattleUnitState ally1 = controller.Allies[0];
-            BattleUnitState ally2 = controller.Allies[1];
-            BattleUnitState enemy1 = controller.Enemies[0];
-            BattleUnitState enemy2 = controller.Enemies[1];
-            controller.BeginStandby();
-            controller.SelectTarget(enemy1);
-            Require(controller.Phase == BattlePhase.PlayerTurn && enemy1.CurrentHealth == 30, "Actions without an attacker must be ignored.");
-            yield return PointerClick(context, CardButton(context, ally1));
-            Require(ReferenceEquals(controller.SelectedAlly, ally1), "Input System pointer did not select an ally card.");
-            yield return PointerClick(context, context.Button("standbyButton"));
-            Require(controller.Phase == BattlePhase.SelectingTarget, "Standby did not enter target selection.");
-            Require(!context.Button("endTurnButton").interactable, "End turn must be disabled while selecting a target.");
-            Require(!CardButton(context, ally2).interactable && CardButton(context, enemy1).interactable,
-                "Target selection must allow enemies and lock allies.");
-            controller.SelectTarget(ally2);
-            controller.EndPlayerTurn();
-            Require(controller.Phase == BattlePhase.SelectingTarget && !ally1.HasUsedStandby, "Illegal target/end-turn input changed target selection.");
-            yield return Capture(context, "02-target-selection");
-            Click(context.Button("cancelButton"));
-            Require(controller.Phase == BattlePhase.PlayerTurn && controller.SelectedAlly == null
-                && !ally1.HasUsedStandby && enemy1.CurrentHealth == 30 && enemy1.CurrentArmor == 2,
-                "Cancel must leave numbers and standby eligibility untouched.");
-            Check(context, "Real card/action/cancel button callbacks and invalid-input guards");
-
-            ClickCard(context, ally1);
-            Click(context.Button("standbyButton"));
-            Button firstTarget = CardButton(context, enemy1);
-            Click(firstTarget);
-            firstTarget.onClick.Invoke();
-            controller.SelectTarget(enemy1);
-            Require(enemy1.CurrentHealth == 16 && enemy1.CurrentArmor == 0 && ally1.HasUsedStandby,
-                "First 16 damage must consume 2 armor, deal 14 health, and commit exactly once.");
-            CardButton(context, ally1).onClick.Invoke();
-            controller.SelectAlly(ally1);
-            controller.BeginStandby();
-            Require(controller.SelectedAlly == null && controller.Phase == BattlePhase.PlayerTurn,
-                "A used ally must not attack again in the same turn.");
-            ClickCard(context, ally2);
-            Require(ReadField<Text>(FindCard(context, enemy2), "distanceText").text.Contains("3"), "Distance must include both living positions.");
-            Click(context.Button("standbyButton"));
-            ClickCard(context, enemy1);
-            Require(!enemy1.IsAlive && enemy1.CurrentHealth == 0 && controller.Phase == BattlePhase.PlayerTurn,
-                "The second standby must kill the first enemy and await manual end turn.");
-            Require(!context.Button("standbyButton").interactable && context.Button("endTurnButton").interactable,
-                "After all standbys, the player must still end the turn manually.");
-            Require(ReadField<Text>(FindCard(context, enemy2), "orderText").text == "前排 1", "Surviving enemy must compact into front position.");
-            Check(context, "16 damage, one standby per ally, duplicate target protection, distance, and enemy compaction");
-
-            Click(context.Button("endTurnButton"));
-            Require(controller.Phase == BattlePhase.EnemyTurn, "End turn must lock immediately.");
-            context.Button("endTurnButton").onClick.Invoke();
-            controller.EndPlayerTurn();
-            controller.SelectAlly(ally1);
-            controller.BeginStandby();
-            controller.SelectTarget(enemy2);
-            Require(controller.Phase == BattlePhase.EnemyTurn && controller.SelectedAlly == null && enemy2.CurrentHealth == 30,
-                "Enemy phase must reject player input and duplicate end turn.");
-            yield return WaitForEnemy(context);
-            Require(controller.TurnNumber == 2 && ally1.CurrentHealth == 40 && ally1.CurrentArmor == 0
-                && ally2.CurrentHealth == 44 && ally2.CurrentArmor == 4 && !ally1.HasUsedStandby && !ally2.HasUsedStandby,
-                "Only the surviving enemy may act once; armor must not refill and standby must reset.");
-            Attack(context, ally1, enemy2);
-            Attack(context, ally2, enemy2);
-            Require(controller.Phase == BattlePhase.Victory && controller.TurnNumber == 2, "Shortest victory must finish immediately in player turn 2.");
-            CheckTerminal(context, BattlePhase.Victory);
-            yield return Capture(context, "03-victory");
-            Check(context, "Dead enemy skipped, one enemy turn, turn reset, shortest victory, and terminal lock");
-            Click(context.Button("restartButton"));
-            context.Button("restartButton").onClick.Invoke();
-            CheckInitial(context);
+            report.screenWidth = Screen.width; report.screenHeight = Screen.height;
+            Require(EventSystem.current != null && EventSystem.current.currentInputModule is InputSystemUIInputModule,
+                "New Input System UI module missing.");
+            Require(context.view.GetComponent<CanvasScaler>().referenceResolution == new Vector2(1280, 720), "Reference resolution changed.");
+            if (!Application.isEditor) Require(Screen.width == 1280 && Screen.height == 720 && !Screen.fullScreen, "Player window is not 1280x720.");
+            SetField(controller, "enemyActionDelay", .01f);
+            yield return FourActionsRuleChecks.Run(controller, report.checks);
+            Require(controller.Phase == BattlePhase.Preparation && controller.Allies.Count == 4 && controller.Enemies.Count == 4, "Default 4v4 preparation missing.");
             yield return null;
-            CheckInitial(context);
-            Check(context, "Victory restart resets all state without duplicate listeners or residual enemy actions");
-
-            int[] frontHealth = { 34, 22, 4, 0, 0, 0, 0 };
-            int[] rearHealth = { 44, 44, 44, 42, 30, 12, 0 };
-            int[] nextIntents = { 6, 9, 6, 6, 9, 6, 6 };
-            for (int round = 0; round < frontHealth.Length; round++)
-            {
-                Click(context.Button("endTurnButton"));
-                context.Button("endTurnButton").onClick.Invoke();
-                yield return WaitForEnemy(context);
-                Require(controller.Allies[0].CurrentHealth == frontHealth[round]
-                    && controller.Allies[1].CurrentHealth == rearHealth[round], "Defeat health trajectory differs at enemy round " + (round + 1));
-                Require(controller.Enemies[0].NextIntentDamage == nextIntents[round]
-                    && controller.Enemies[1].NextIntentDamage == nextIntents[round], "Enemy intents differ at enemy round " + (round + 1));
-                if (round == 3)
-                {
-                    Require(controller.Allies[1].CurrentArmor == 0, "The second attacker must retarget the new front ally and consume its armor.");
-                    Require(ReadField<Text>(FindCard(context, controller.Allies[1]), "orderText").text == "前排 1",
-                        "Surviving ally must compact after death.");
-                }
-            }
-            CheckTerminal(context, BattlePhase.Defeat);
-            Require(controller.TurnNumber == 7, "Defeat must not start another player turn.");
-            yield return Capture(context, "04-defeat");
-            Check(context, "6/6/9 enemy intents, exact 7-round defeat, armor persistence, per-hit retargeting, and ally compaction");
-            Click(context.Button("restartButton"));
-            CheckInitial(context);
-            yield return WinBattle(context);
-
-            foreach (int size in new[] { 1, 4 })
-            {
-                BattleDefinition temporary = ScriptableObject.CreateInstance<BattleDefinition>();
-                temporary.allies = new AllyDefinition[size];
-                temporary.enemies = new EnemyDefinition[size];
-                for (int index = 0; index < size; index++)
-                {
-                    temporary.allies[index] = new AllyDefinition { name = "验证剑客 " + (index + 1) };
-                    temporary.enemies[index] = new EnemyDefinition { name = "验证史莱姆 " + (index + 1) };
-                }
-                SetField(controller, "definition", temporary);
-                Click(context.Button("restartButton"));
-                Require(controller.Allies.Count == size && controller.Enemies.Count == size, "Temporary formation size was not applied.");
-                Canvas.ForceUpdateCanvases();
-                VerifyLayout(context, "allyContainer", size);
-                VerifyLayout(context, "enemyContainer", size);
-                if (size == 4)
-                {
-                    ClickCard(context, controller.Allies[3]);
-                    Require(ReadField<Text>(FindCard(context, controller.Enemies[3]), "distanceText").text.Contains("7"), "4th to 4th distance must be 7.");
-                    Click(context.Button("standbyButton"));
-                    ClickCard(context, controller.Enemies[3]);
-                    Require(controller.Enemies[3].CurrentHealth == 16, "Displayed range must not block a distance-7 attack.");
-                    yield return Capture(context, "05-four-vs-four");
-                }
-                yield return WinBattle(context);
-                SetField(controller, "definition", original);
-                UnityEngine.Object.Destroy(temporary);
-                Check(context, size + "v" + size + " in-memory formation, visible card layout, and complete victory");
-            }
-
-            Click(context.Button("restartButton"));
-            CheckInitial(context);
-            Require(JsonUtility.ToJson(original) == originalJson, "Verification modified the authored battle configuration.");
-            Require(report.runtimeErrors.Count == 0, "Unity emitted runtime errors during verification.");
-            Check(context, "Default 2v2 restored and ScriptableObject configuration unchanged");
-        }
-
-        private static void CheckInitial(Context context)
-        {
-            BattleController controller = context.controller;
-            Require(controller.enabled && controller.Phase == BattlePhase.PlayerTurn && controller.TurnNumber == 1
-                && controller.SelectedAlly == null && controller.ActiveEnemy == null, "Initial phase, turn, and selections are incorrect.");
-            Require(controller.Allies.Count == 2 && controller.Enemies.Count == 2, "Expected the default 2v2 formation.");
-            Require(controller.Allies[0].CurrentHealth == 40 && controller.Allies[0].CurrentArmor == 6
-                && controller.Allies[1].CurrentHealth == 44 && controller.Allies[1].CurrentArmor == 4, "Ally initial health/armor are incorrect.");
+            Canvas.ForceUpdateCanvases();
+            VerifyFont(context); VerifyLayout(context, "allyContainer", 4); VerifyLayout(context, "enemyContainer", 4);
+            Require(controller.Backpack.Width == 5 && controller.Backpack.Height == 3 && controller.Backpack.Placements.Count == 4, "Starting 5x3 backpack invalid.");
             foreach (BattleUnitState ally in controller.Allies)
-                Require(ally.IsAlive && !ally.HasUsedStandby && ally.StandbyDamage == 16, "Ally standby state did not reset.");
-            foreach (BattleUnitState enemy in controller.Enemies)
-                Require(enemy.CurrentHealth == 30 && enemy.CurrentArmor == 2 && enemy.NextIntentDamage == 6, "Enemy state did not reset.");
-            Require(!ReadField<GameObject>(context.view, "resultPanel").activeSelf && !context.Button("restartButton").interactable,
-                "Result UI must be hidden outside terminal phases.");
-        }
-
-        private static void CheckTerminal(Context context, BattlePhase phase)
-        {
-            BattleController controller = context.controller;
-            Require(controller.Phase == phase && ReadField<GameObject>(context.view, "resultPanel").activeSelf
-                && context.Button("restartButton").interactable, "Result panel or restart button was not enabled.");
-            Require(!context.Button("standbyButton").interactable && !context.Button("endTurnButton").interactable,
-                "Terminal battle actions must be disabled.");
-            context.Button("endTurnButton").onClick.Invoke();
-            context.Button("standbyButton").onClick.Invoke();
-            controller.SelectAlly(controller.Allies[0]);
-            controller.SelectTarget(controller.Enemies[0]);
-            controller.CancelSelection();
-            Require(controller.Phase == phase && controller.SelectedAlly == null && controller.ActiveEnemy == null,
-                "Terminal battle accepted input.");
-        }
-
-        private static IEnumerator WinBattle(Context context)
-        {
-            BattleController controller = context.controller;
-            int roundLimit = 20;
-            while (controller.Phase != BattlePhase.Victory)
             {
-                Require(controller.Phase == BattlePhase.PlayerTurn && roundLimit-- > 0, "Victory helper encountered an unexpected phase or exceeded its round limit.");
-                for (int index = 0; index < controller.Allies.Count && controller.Phase == BattlePhase.PlayerTurn; index++)
+                Require(ally.EquipmentGrids.Count == 3 && ally.EquipmentGrids[0].Placements.Count == 1 && ally.EquipmentGrids[1].Placements.Count == 1, "Starting equipment missing.");
+                foreach (InventoryGridState slot in ally.EquipmentGrids)
+                    Require(slot.Width == 1 && slot.Height == 1 && slot.IsEquipmentSlot && slot.Placements.Count <= 1,
+                        "Character equipment must use three single-item slots.");
+            }
+            VerifyBookBindings(context);
+            VerifyShieldBars(context);
+            yield return Capture(context, "BookUI-01-preparation");
+
+            yield return FourActionsUiChecks.Run(controller, context.view, report.checks, report.inputDiagnostics);
+
+            yield return PointerClick(context, CardButton(context, controller.Enemies[0]));
+            Require(context.view.InfoPanel.HasEnemyTooltip && context.view.InfoPanel.Tooltip.IsPinned, "Enemy inspection tooltip did not pin.");
+            yield return PointerClick(context, CardButton(context, controller.Allies[0]));
+            bool inspectedMatches = ReferenceEquals(context.view.InfoPanel.InspectedAlly, controller.Allies[0]);
+            Require(inspectedMatches && !context.view.InfoPanel.Tooltip.IsVisible,
+                "Ally inspection did not update the book and close floating details: inspectedMatches=" + inspectedMatches
+                + ", inspected=" + (context.view.InfoPanel.InspectedAlly == null ? "none" : context.view.InfoPanel.InspectedAlly.Name)
+                + ", expected=" + controller.Allies[0].Name + ", tooltipVisible=" + context.view.InfoPanel.Tooltip.IsVisible
+                + ", tooltipPinned=" + context.view.InfoPanel.Tooltip.IsPinned + ", tooltipTitle=" + context.view.InfoPanel.Tooltip.Title
+                + ", currentMouse=" + (Mouse.current == null ? "none" : Mouse.current.name + "#" + Mouse.current.deviceId));
+            Check(context, "Virtual mouse selects allies in the book and pins enemy details without replacing the equipment page");
+
+            BattleUnitState actor = controller.Allies[0];
+            EquipmentInstance sword = actor.EquipmentGrids[0].Placements[0].Item;
+            Require(controller.TryAutoMoveEquipment(sword, actor.EquipmentGrids[0], actor, out string moveError), moveError);
+            EquipmentInstance dagger = null;
+            foreach (InventoryPlacement placement in controller.Backpack.Placements)
+                if (placement.Item.Definition.displayName == "短匕") dagger = placement.Item;
+            Require(dagger != null, "Dagger missing.");
+            yield return null;
+            EquipmentItemView daggerView = FindItem(context, dagger);
+            var handGrid = ReadField<InventoryGridView>(context.view.InfoPanel, "handheldGrid");
+            Vector2 start = Center((RectTransform)daggerView.transform);
+            RectTransform handRect = (RectTransform)handGrid.transform;
+            Vector2 destination = RectTransformUtility.WorldToScreenPoint(null,
+                handRect.TransformPoint(new Vector3(handRect.rect.xMin + 20f, handRect.rect.yMax - 20f, 0f)));
+            yield return PointerDrag(context, start, destination);
+            Require(ReferenceEquals(dagger.Grid, actor.EquipmentGrids[0]), "Real UI drag did not equip dagger.");
+            Check(context, "Virtual mouse drag equips backpack item into a real equipment grid without losing instances");
+            context.view.InfoPanel.InspectItem(dagger);
+            yield return Capture(context, "BookUI-02-item-tooltip");
+            context.view.InfoPanel.InspectUnit(actor);
+            yield return Capture(context, "BookUI-03-equipment");
+
+            yield return PointerClick(context, context.Button("endTurnButton"));
+            Require(controller.Phase == BattlePhase.PlayerTurn && controller.ActionPoints == 4 && !controller.CanModifyEquipment, "Start battle did not lock equipment.");
+            yield return PointerClick(context, CardButton(context, actor));
+            yield return PointerClick(context, context.Button("rotateButton"));
+            Require(controller.Phase == BattlePhase.SelectingTarget, "Rotate did not request a target.");
+            Require(!controller.CanTarget(controller.Enemies[3]), "Out-of-range target is legal.");
+            yield return Capture(context, "BookUI-04-target-range");
+            yield return PointerClick(context, context.Button("cancelButton"));
+            Require(controller.Phase == BattlePhase.PlayerTurn && controller.ActionPoints == 4 && !actor.IsRotated,
+                "Pointer cancellation changed AP or card orientation.");
+            yield return PointerClick(context, CardButton(context, actor));
+            Require(ReferenceEquals(controller.SelectedAlly, actor), "Pointer re-selection after cancellation did not restore the actor.");
+            yield return PointerClick(context, context.Button("rotateButton"));
+            yield return PointerClick(context, CardButton(context, controller.Enemies[0]));
+            Require(actor.IsRotated && controller.ActionPoints == 3, "Rotate failed through pointer input.");
+            yield return new WaitForSecondsRealtime(.3f);
+            VerifyShieldBars(context);
+            yield return PointerClick(context, CardButton(context, controller.Allies[2]));
+            yield return PointerClick(context, context.Button("standbyButton"));
+            yield return PointerClick(context, CardButton(context, FirstLegalTarget(controller)));
+            Require(controller.Allies[2].HasUsedStandby && controller.ActionPoints == 3,
+                "The painted standby control did not commit a zero-AP action through real pointer input.");
+            yield return PointerClick(context, CardButton(context, controller.Allies[1]));
+            yield return PointerClick(context, context.Button("flipButton"));
+            yield return PointerClick(context, CardButton(context, FirstLegalTarget(controller)));
+            Require(controller.Allies[1].IsBack && controller.ActionPoints == 1, "Flip did not reach mirror form.");
+            yield return PointerClick(context, context.Button("adjustButton"));
+            Require(controller.Phase == BattlePhase.Reorganizing && controller.ActionPoints == 0, "Final AP did not enter persistent reorganization.");
+            VerifyShieldBars(context);
+            yield return Capture(context, "BookUI-05-reorganization");
+            yield return PointerClick(context, context.Button("adjustButton"));
+            yield return WaitForEnemy(context);
+            Require(controller.Phase == BattlePhase.PlayerTurn && controller.ActionPoints == 4, "Reorganization exit did not advance/reset the turn.");
+            VerifyShieldBars(context);
+            Check(context, "All four painted controls use real pointer input: standby/rotate/flip/adjust, cancel is atomic, target clicks pass tooltips, shields stay upright, and final-AP adjustment waits for explicit exit");
+
+            int rounds = 0;
+            while (controller.Phase != BattlePhase.Victory && controller.Phase != BattlePhase.Defeat && rounds++ < 30)
+            {
+                Require(controller.Phase == BattlePhase.PlayerTurn, "Unexpected win helper phase.");
+                foreach (BattleUnitState ally in controller.Allies)
                 {
-                    BattleUnitState ally = controller.Allies[index];
-                    if (!ally.IsAlive || ally.HasUsedStandby) continue;
-                    BattleUnitState target = null;
-                    foreach (BattleUnitState enemy in controller.Enemies)
-                        if (enemy.IsAlive) { target = enemy; break; }
-                    Require(target != null, "No live enemy before victory.");
-                    Attack(context, ally, target);
+                    if (!ally.IsAlive || controller.Phase != BattlePhase.PlayerTurn) continue;
+                    controller.SelectAlly(ally);
+                    if (ally.IsBack)
+                    {
+                        if (controller.BeginAction(BattleActionKind.Flip)) ChooseAllTargets(controller);
+                    }
+                    else if (controller.BeginAction(BattleActionKind.Standby)) ChooseAllTargets(controller);
                 }
-                if (controller.Phase == BattlePhase.Victory) break;
-                Click(context.Button("endTurnButton"));
+                if (controller.Phase == BattlePhase.PlayerTurn) controller.EndPlayerTurn();
                 yield return WaitForEnemy(context);
+            }
+            Require(controller.Phase == BattlePhase.Victory, "Default 4v4 did not finish in victory.");
+            yield return Capture(context, "BookUI-06-victory");
+            yield return PointerClick(context, context.Button("restartButton"));
+            Require(controller.Phase == BattlePhase.Preparation && controller.Backpack.Placements.Count == 4 && !controller.Allies[0].IsRotated, "Restart did not reset equipment/preparation.");
+            controller.StartBattle();
+            for (int round = 0; controller.Phase != BattlePhase.Defeat && round < 80; round++)
+            {
+                controller.EndPlayerTurn(); yield return WaitForEnemy(context);
+            }
+            Require(controller.Phase == BattlePhase.Defeat, "Default battle did not reach defeat.");
+            yield return Capture(context, "BookUI-07-defeat");
+            controller.RestartBattle();
+            Require(controller.Phase == BattlePhase.Preparation && controller.Allies[0].CurrentHealth == controller.Allies[0].MaxHealth, "Defeat restart failed.");
+            Check(context, "Full 4v4 victory, defeat and both restart paths restore initial state");
+            RecordText(context);
+        }
+
+        private static void ChooseAllTargets(BattleController controller)
+        {
+            int guard = 0;
+            while (controller.Phase == BattlePhase.SelectingTarget && guard++ < 20)
+            {
+                BattleUnitState target = null;
+                foreach (BattleUnitState unit in controller.Enemies) if (controller.CanTarget(unit)) { target = unit; break; }
+                if (target == null) foreach (BattleUnitState unit in controller.Allies) if (controller.CanTarget(unit)) { target = unit; break; }
+                Require(target != null, "Action had no legal target."); controller.SelectTarget(target);
+            }
+        }
+
+        private static BattleUnitState FirstLegalTarget(BattleController controller)
+        {
+            foreach (BattleUnitState unit in controller.Enemies) if (controller.CanTarget(unit)) return unit;
+            foreach (BattleUnitState unit in controller.Allies) if (controller.CanTarget(unit)) return unit;
+            throw new InvalidOperationException("The pointer action had no legal target.");
+        }
+
+        private static void VerifyBookBindings(Context context)
+        {
+            BattleInfoPanelView info = context.view.InfoPanel;
+            Transform surface = context.view.transform.Find("BookSurface");
+            Require(surface != null && surface.GetComponent<Image>() != null && surface.GetComponent<Image>().sprite != null,
+                "The supplied book surface sprite is not connected to the Canvas.");
+            foreach (string field in new[] { "unitNameText", "healthValueText", "attackValueText" })
+                Require(ReadField<Text>(info, field) != null, "Book value binding missing: " + field);
+            foreach (string field in new[] { "healthFill", "attackFill" })
+                Require(ReadField<Image>(info, field) != null && ReadField<Image>(info, field).sprite != null,
+                    "Painted book stat-bar binding missing: " + field);
+            Require(info.Tooltip != null && ReadField<RectTransform>(info.Tooltip, "panel") != null,
+                "The floating book tooltip is not wired.");
+            foreach (string field in new[] { "handheldGrid", "wornGrid", "accessoryGrid" })
+                Require(ReadField<InventoryGridView>(info, field) != null, "Single equipment-slot view missing: " + field);
+            Check(context, "Supplied book surface, name/health/attack strips, three equipment slots and floating details have authored scene bindings");
+        }
+
+        private static void VerifyShieldBars(Context context)
+        {
+            foreach (CharacterCardView card in context.view.GetComponentsInChildren<CharacterCardView>())
+            {
+                if (card.Unit == null || !card.Unit.IsAlive) continue;
+                Image track = ReadField<Image>(card, "armorTrack");
+                Image fill = ReadField<Image>(card, "armorFill");
+                RectTransform visual = ReadField<RectTransform>(card, "visualRoot");
+                Require(track != null && fill != null && fill.gameObject.activeInHierarchy && !fill.transform.IsChildOf(visual),
+                    "Every live ally/enemy needs a shield bar outside the rotating card art.");
+                float expected = card.Unit.MaxArmor > 0 ? (float)card.Unit.CurrentArmor / card.Unit.MaxArmor : 0f;
+                Require(Mathf.Abs(fill.fillAmount - expected) < .001f && fill.type == Image.Type.Filled &&
+                    fill.fillMethod == Image.FillMethod.Horizontal && fill.fillOrigin == (int)Image.OriginHorizontal.Left,
+                    "Shield fill must match the live shield amount and grow from the left.");
+                Require(Quaternion.Angle(fill.transform.rotation, context.view.transform.rotation) < .1f &&
+                    Quaternion.Angle(track.transform.rotation, context.view.transform.rotation) < .1f,
+                    "Shield bars must remain upright when the character card rotates or flips.");
+            }
+        }
+
+        private static EquipmentItemView FindItem(Context context, EquipmentInstance item)
+        {
+            foreach (EquipmentItemView view in context.view.GetComponentsInChildren<EquipmentItemView>())
+            {
+                // The model identity is stable even when moving between panels.
+                foreach (FieldInfo field in typeof(EquipmentItemView).GetFields(BindingFlags.Instance | BindingFlags.NonPublic))
+                    if (field.FieldType == typeof(EquipmentInstance) && ReferenceEquals(field.GetValue(view), item)) return view;
+            }
+            throw new InvalidOperationException("No item view for " + item.Definition.displayName);
+        }
+
+        private static Vector2 Center(RectTransform rect) => RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(rect.rect.center));
+
+        private static IEnumerator PointerDrag(Context context, Vector2 start, Vector2 end)
+        {
+            InputSettings previousSettings = InputSystem.settings;
+            InputSettings settings = UnityEngine.Object.Instantiate(previousSettings);
+            settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+            settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
+            var module = (InputSystemUIInputModule)EventSystem.current.currentInputModule;
+            InputActionAsset actions = module.actionsAsset;
+            ReadOnlyArray<InputDevice>? devices = actions.devices;
+            Mouse mouse = null;
+            try
+            {
+                InputSystem.settings = settings; mouse = InputSystem.AddDevice<Mouse>("VerificationDragMouse");
+                actions.devices = new[] { (InputDevice)mouse };
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = start }); yield return null; yield return null;
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = start }.WithButton(MouseButton.Left)); yield return null; yield return null;
+                for (int step = 1; step <= 6; step++)
+                {
+                    InputSystem.QueueStateEvent(mouse, new MouseState { position = Vector2.Lerp(start, end, step / 6f) }.WithButton(MouseButton.Left));
+                    yield return null; yield return null;
+                }
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = end }); yield return null; yield return null;
+            }
+            finally
+            {
+                actions.devices = devices;
+                if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
+                InputSystem.settings = previousSettings; UnityEngine.Object.Destroy(settings);
             }
         }
 
@@ -347,37 +391,26 @@ namespace CardCards.Validation
             float deadline = Time.realtimeSinceStartup + 15f;
             while (context.controller.Phase == BattlePhase.EnemyTurn || context.controller.Phase == BattlePhase.Resolving)
             {
-                Require(Time.realtimeSinceStartup < deadline, "Enemy turn did not finish within 15 seconds.");
-                yield return null;
+                Require(Time.realtimeSinceStartup < deadline, "Enemy turn timed out."); yield return null;
             }
         }
 
-        private static void Attack(Context context, BattleUnitState ally, BattleUnitState target)
+        private static Button CardButton(Context context, BattleUnitState unit)
         {
-            ClickCard(context, ally);
-            Click(context.Button("standbyButton"));
-            ClickCard(context, target);
-        }
-
-        private static void ClickCard(Context context, BattleUnitState unit) { Click(CardButton(context, unit)); }
-        private static Button CardButton(Context context, BattleUnitState unit) { return ReadField<Button>(FindCard(context, unit), "cardButton"); }
-
-        private static CharacterCardView FindCard(Context context, BattleUnitState unit)
-        {
-            foreach (CharacterCardView card in context.view.GetComponentsInChildren<CharacterCardView>(true))
-                if (card.gameObject.activeInHierarchy && ReferenceEquals(card.Unit, unit)) return card;
+            foreach (CharacterCardView card in context.view.GetComponentsInChildren<CharacterCardView>())
+                if (ReferenceEquals(card.Unit, unit)) return ReadField<Button>(card, "cardButton");
             throw new InvalidOperationException("No active card for " + unit.Name);
-        }
-
-        private static void Click(Button button)
-        {
-            Require(button != null && button.isActiveAndEnabled && button.IsInteractable(), "Attempted to click a disabled UI button.");
-            button.onClick.Invoke();
         }
 
         private static IEnumerator PointerClick(Context context, Button button)
         {
-            Require(button != null && button.IsInteractable(), "Pointer click target is disabled.");
+            Require(button != null && button.gameObject.activeInHierarchy && button.IsInteractable(),
+                "Pointer click target unavailable: target=" + (button == null ? "null" : button.name)
+                + ", active=" + (button != null && button.gameObject.activeInHierarchy)
+                + ", interactable=" + (button != null && button.IsInteractable())
+                + ", phase=" + context.controller.Phase + ", AP=" + context.controller.ActionPoints
+                + ", selected=" + (context.controller.SelectedAlly == null ? "none" : context.controller.SelectedAlly.Name)
+                + ", message=" + context.controller.LastMessage);
             Canvas.ForceUpdateCanvases();
             var rect = (RectTransform)button.transform;
             Vector2 position = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(rect.rect.center));
@@ -495,7 +528,7 @@ namespace CardCards.Validation
                     context.report.warnings.Add("Editor batch Play Mode screenshots are deferred to the Windows player capture.");
                 yield break;
             }
-            string directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(context.reportPath)), "BattleScreenshots");
+            string directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(context.reportPath)), "BookUI-Screenshots");
             Directory.CreateDirectory(directory);
             string path = Path.Combine(directory, name + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + ".png");
             Canvas.ForceUpdateCanvases();

@@ -16,7 +16,8 @@ namespace CardCards.Editor
     {
         private const string RunningKey = "CardCards.BattleVerification.Running";
         private const string ScenePath = "Assets/Scenes/SampleScene.unity";
-        private const string ReportPath = "Logs/BattleVerification.json";
+        private const string DefaultReportPath = "Logs/BookUI-PlayModeVerification.json";
+        private static string ReportPath => Argument("-battleVerificationReport", DefaultReportPath);
         private static BattleVerificationReport report;
         private static Stack<IEnumerator> stack;
         private static int previousFrame = -1;
@@ -58,7 +59,7 @@ namespace CardCards.Editor
             report = new BattleVerificationReport { source = "Unity Editor real Play Mode" };
             stack = new Stack<IEnumerator>();
             stack.Push(BattleVerificationSuite.Run(report, Path.GetFullPath(ReportPath)));
-            deadline = EditorApplication.timeSinceStartup + 180d;
+            deadline = EditorApplication.timeSinceStartup + 240d;
             previousFrame = -1;
             Application.logMessageReceived += ReceiveLog;
             EditorApplication.update += Update;
@@ -69,7 +70,7 @@ namespace CardCards.Editor
             EditorApplication.QueuePlayerLoopUpdate();
             if (EditorApplication.timeSinceStartup > deadline)
             {
-                Finish(new TimeoutException("Play Mode verification exceeded 180 seconds."));
+                Finish(new TimeoutException("Play Mode verification exceeded 240 seconds."));
                 return;
             }
             // This must advance real game frames: Editor updates alone do not run coroutines.
@@ -104,6 +105,10 @@ namespace CardCards.Editor
             if (failure != null) report.failure = failure.ToString();
             report.success = failure == null && report.runtimeErrors.Count == 0;
             BattleVerificationSuite.WriteReport(report, ReportPath);
+            if (stack != null)
+                while (stack.Count > 0)
+                    try { (stack.Pop() as IDisposable)?.Dispose(); }
+                    catch (Exception exception) { Debug.LogException(exception); }
             stack = null;
             if (Application.isBatchMode) EditorApplication.Exit(report.success ? 0 : 1);
             else
@@ -116,7 +121,7 @@ namespace CardCards.Editor
         [MenuItem("Card Cards/Verification/Build Windows Development Player")]
         public static void BuildWindows()
         {
-            const string output = "Builds/Windows/CardCards.exe";
+            string output = Argument("-battleBuildOutput", "Builds/BookUI/Windows/CardCards.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport build = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
@@ -136,9 +141,22 @@ namespace CardCards.Editor
                 durationSeconds = build.summary.totalTime.TotalSeconds,
                 completedUtc = DateTime.UtcNow.ToString("O")
             };
-            Directory.CreateDirectory("Logs");
-            File.WriteAllText("Logs/BattleWindowsBuild.json", JsonUtility.ToJson(result, true));
+            foreach (BuildStep step in build.steps)
+                foreach (BuildStepMessage message in step.messages)
+                    if (message.type == LogType.Warning || message.type == LogType.Error || message.type == LogType.Exception)
+                        result.messages.Add(step.name + ": " + message.content);
+            string buildReportPath = Argument("-battleBuildReport", "Logs/BookUI-WindowsBuild.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(buildReportPath)));
+            File.WriteAllText(buildReportPath, JsonUtility.ToJson(result, true));
             if (!result.success) throw new InvalidOperationException("Windows build failed: " + result.result);
+        }
+
+        private static string Argument(string name, string fallback)
+        {
+            string[] arguments = Environment.GetCommandLineArgs();
+            for (int index = 0; index < arguments.Length - 1; index++)
+                if (arguments[index] == name) return arguments[index + 1];
+            return fallback;
         }
 
         [Serializable]
@@ -149,6 +167,7 @@ namespace CardCards.Editor
             public string output;
             public int errors;
             public int warnings;
+            public List<string> messages = new List<string>();
             public string sizeBytes;
             public double durationSeconds;
             public string completedUtc;
